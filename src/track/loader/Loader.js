@@ -38,7 +38,7 @@ export default class {
 
     if(audioData.byteLength > 16) {
       var view = new DataView(audioData);
-      var wanted = "DEMOPUSHEADER_V1";
+      var wanted = "DEMOPUSHEADER_V2";
       var success = true;
       for(var i = 0, n = 16; i < n; i++) {
         var c = view.getUint8(i);
@@ -76,80 +76,58 @@ export default class {
 
   fileLoad_custom(demopusData) {
     this.setStateChange(STATE_DECODING);
-
-    var parsed = [];
-    var sampleRate = 0;
-    var numSamples = 0;
-    var channels = 1;
+    var promises = [];
 
     const view = new DataView(demopusData);
     var ofs = 16; // skip header
 
+    var channels = 1;
+    var sampleRate = view.getUint32(ofs, true);
+    ofs += 4;
+    var numSamples = Number(view.getBigUint64(ofs, true));
+    ofs += 8;
+
+    // output sample rate != input sample rate
+    numSamples *= (this.ac.sampleRate / sampleRate);
+    var audioBuffer = this.ac.createBuffer(channels, numSamples, this.ac.sampleRate);
+
     while (ofs < demopusData.byteLength) {
-      var header = view.getUint8(ofs);
-      ofs += 1;
+      var samplesOfs = Number(view.getBigUint64(ofs, true));
+      ofs += 8;
+      samplesOfs *= (this.ac.sampleRate / sampleRate);
 
-      if (header == 0x02) { // opus
-        var dataLen = Number(view.getBigUint64(ofs, true));
-        ofs += 8;
-        var opusData = demopusData.slice(ofs, ofs + dataLen);
-        ofs += dataLen;
-
-        var promise = this.ac.decodeAudioData(
-          opusData,
-          (audioBuffer) => {
-            return audioBuffer;
-          },
-          (err) => {
-            if (err === null) {
-              // Safari issues with null error
-              return Error('MediaDecodeAudioDataUnknownContentType');
-            } else {
-              return err;
-            }
-          },
-        );
-
-        parsed.push(promise);
-      }
-
-      else if (header == 0x03) { // silence
-        var samples = Number(view.getBigUint64(ofs, true));
-        ofs += 8;
-        parsed.push(samples);
-      }
-
-      else if (header == 0x01) { // info
-        sampleRate = view.getUint32(ofs, true);
-        ofs += 4;
-        numSamples = Number(view.getBigUint64(ofs, true));
-        ofs += 8;
-      }
-
-      else if (header == 0x04) { // done
+      if (ofs >= demopusData.byteLength) {
         break;
       }
+
+      var dataLen = view.getUint32(ofs, true);
+      ofs += 4;
+
+      var opusData = demopusData.slice(ofs, ofs + dataLen);
+      ofs += dataLen;
+
+      var promise = this.ac.decodeAudioData(
+        opusData,
+        function(decoded) {
+          var buf = decoded.getChannelData(0);
+          audioBuffer.copyToChannel(buf, 0, this);
+          return decoded.length;
+        }.bind(samplesOfs),
+        (err) => {
+          if (err === null) {
+            // Safari issues with null error
+            return Error('MediaDecodeAudioDataUnknownContentType');
+          } else {
+            return err;
+          }
+        },
+      );
+
+      promises.push(promise);
     }
 
     return new Promise((resolve, reject) => {
-      // output sample rate != input sample rate
-      numSamples *= (this.ac.sampleRate / sampleRate);
-      var audioBuffer = this.ac.createBuffer(channels, numSamples, this.ac.sampleRate);
-
-      return Promise.all(parsed).then(result => {
-        var curSamples = 0;
-
-        for (var i = 0; i < result.length; i++) {
-          var elem = result[i];
-          if (typeof(elem) == "number") {
-            curSamples += elem * (this.ac.sampleRate / sampleRate);
-          } else {
-            var buf = elem.getChannelData(0);
-            audioBuffer.copyToChannel(buf, 0, curSamples);
-            curSamples += elem.length;
-          }
-        }
-
+      Promise.all(promises).then(result => {
         this.setStateChange(STATE_FINISHED);
         resolve(audioBuffer);
       });
