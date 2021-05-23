@@ -354,6 +354,7 @@ export default class {
       const tracks = audioBuffers.map((audioBuffer, index) => {
         const info = trackList[index];
         const name = info.name || 'Untitled';
+        const infostr = info.info || undefined;
         const start = info.start || 0;
         const states = info.states || {};
         const fadeIn = info.fadeIn;
@@ -376,6 +377,7 @@ export default class {
         track.src = info.src;
         track.setBuffer(audioBuffer);
         track.setName(name);
+        track.setInfo(infostr);
         track.setEventEmitter(this.ee);
         track.setEnabledStates(states);
         track.setCues(cueIn, cueOut);
@@ -461,15 +463,24 @@ export default class {
     if (this.isRendering) {
       return;
     }
-
     this.isRendering = true;
-    this.offlineAudioContext = new OfflineAudioContext(2, 44100 * this.duration, 44100);
 
+    var duration = this.duration;
+    var startTime = 0;
+    var endTime = 0;
+    if (this.isSegmentSelection()) {
+      const segment = this.getTimeSelection();
+      startTime = segment.start;
+      endTime = segment.end;
+      duration = (endTime - startTime);
+    }
+
+    this.offlineAudioContext = new OfflineAudioContext(1, 44100 * duration, 44100);
     const currentTime = this.offlineAudioContext.currentTime;
 
     this.tracks.forEach((track) => {
       track.setOfflinePlayout(new Playout(this.offlineAudioContext, track.buffer));
-      track.schedulePlay(currentTime, 0, 0, {
+      track.schedulePlay(currentTime, startTime, endTime, {
         shouldPlay: this.shouldTrackPlay(track),
         masterGain: 1,
         isOffline: true,
@@ -491,6 +502,7 @@ export default class {
           command: 'init',
           config: {
             sampleRate: 44100,
+            stereo: false
           },
         });
 
@@ -509,8 +521,7 @@ export default class {
         this.exportWorker.postMessage({
           command: 'record',
           buffer: [
-            audioBuffer.getChannelData(0),
-            audioBuffer.getChannelData(1),
+            audioBuffer.getChannelData(0)
           ],
         });
 

@@ -20,6 +20,7 @@ const MAX_CANVAS_WIDTH = 1000;
 export default class {
   constructor() {
     this.name = 'Untitled';
+    this.info = undefined;
     this.customClass = undefined;
     this.waveOutlineColor = undefined;
     this.gain = 1;
@@ -43,6 +44,10 @@ export default class {
 
   setName(name) {
     this.name = name;
+  }
+
+  setInfo(info) {
+    this.info = info;
   }
 
   setCustomClass(className) {
@@ -499,6 +504,12 @@ export default class {
           ]),
         );
       }
+
+      if (widgets.info) {
+        controls.push(
+          h('label.info', [this.info])
+        );
+      }
     }
 
     return h(
@@ -743,6 +754,7 @@ export default class {
       start: this.startTime,
       end: this.endTime,
       name: this.name,
+      info: this.info,
       customClass: this.customClass,
       cuein: this.cueIn,
       cueout: this.cueOut,
